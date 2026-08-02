@@ -191,12 +191,16 @@ class NewsAnalyzer:
 
     def analyze_market_news(self) -> list:
         """
-        Combines news sources, dynamically extracts NSE tickers, and filters sentiment > 0.40.
+        Fetches live RSS & financial headlines, dynamically extracts NSE tickers, and filters sentiment > 0.40.
+        Uses fallback feed only if live RSS requests fail due to network timeouts.
         """
-        live_news = self.fetch_google_news()
-        fallback_news = self.get_fallback_live_feed()
+        all_news = self.fetch_google_news()
         
-        all_news = live_news + fallback_news
+        # If live RSS feed is empty (e.g. offline or network error), fallback to backup catalysts
+        if not all_news:
+            print("[News Analyzer] Live RSS feed returned 0 headlines. Using fallback news feed...")
+            all_news = self.get_fallback_live_feed()
+
         filtered_candidates = []
         seen_symbols = set()
 
