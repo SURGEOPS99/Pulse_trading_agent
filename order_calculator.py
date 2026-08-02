@@ -2,7 +2,8 @@
 Risk Management & Order Calculator Engine.
 Dynamically computes position sizing based on available capital (₹2,524.10) and 5x MIS leverage.
 Computes Trigger Price (0.1% buffer above resistance) and Limit Price (max allowable execution slippage).
-Formats standardized breakout order tables.
+Calculates Risk Levels ('LOW', 'MEDIUM', 'HIGH') based on catalyst conviction & sentiment score.
+Formats clean, mobile-optimized HTML cards for Telegram.
 """
 
 import math
@@ -10,7 +11,7 @@ from config import BASE_CAPITAL, MIS_LEVERAGE, TRIGGER_BUFFER_PCT, LIMIT_SLIPPAG
 
 class OrderCalculator:
     """
-    Computes precise intraday Stop-Loss Limit orders for NSE stocks.
+    Computes precise intraday Stop-Loss Limit orders and risk levels for NSE stocks.
     """
 
     def __init__(self, base_capital: float = BASE_CAPITAL, leverage: float = MIS_LEVERAGE):
@@ -18,10 +19,23 @@ class OrderCalculator:
         self.leverage = leverage
         self.effective_capital = self.base_capital * self.leverage
 
+    def compute_risk_rating(self, sentiment_score: float) -> dict:
+        """
+        Maps NLP sentiment score to risk rating levels: LOW, MEDIUM, or HIGH risk.
+        - Score >= 0.70: LOW Risk (Strong fundamental catalyst / earnings / major order win)
+        - Score 0.50 - 0.69: MEDIUM Risk (Moderate momentum / steady breakout)
+        - Score < 0.50: HIGH Risk (Speculative volatility breakout)
+        """
+        if sentiment_score >= 0.70:
+            return {"level": "LOW", "full": "LOW RISK 🟢", "emoji": "🟢", "desc": "Strong Catalyst Conviction"}
+        elif sentiment_score >= 0.50:
+            return {"level": "MEDIUM", "full": "MEDIUM RISK 🟡", "emoji": "🟡", "desc": "Moderate Breakout Momentum"}
+        else:
+            return {"level": "HIGH", "full": "HIGH RISK 🔴", "emoji": "🔴", "desc": "Speculative Volatility"}
+
     def compute_breakout_order(self, symbol: str, resistance_price: float, custom_capital: float = None) -> dict:
         """
-        Calculates exact quantity, trigger price, and limit price for a validated breakout order.
-        Rejects invalid or unverified stock pricing.
+        Calculates exact quantity, trigger price, limit price, and risk metrics for a breakout order.
         """
         if not symbol or resistance_price <= 0:
             raise ValueError(f"Invalid stock parameter: symbol={symbol}, resistance_price={resistance_price}")
@@ -37,7 +51,6 @@ class OrderCalculator:
         limit_price = round(trigger_price + max(0.10, round(trigger_price * 0.001, 2)), 2)
 
         # 3. Quantity: Position size calculated from effective purchasing power (MIS 5x)
-        # Using limit_price to ensure margin compliance
         quantity = max(1, math.floor(effective_cap / limit_price))
         total_exposure = round(quantity * limit_price, 2)
         margin_required = round(total_exposure / self.leverage, 2)
@@ -59,38 +72,26 @@ class OrderCalculator:
             "leverage": f"{self.leverage:g}x MIS"
         }
 
-    def generate_markdown_table(self, order: dict) -> str:
-        """
-        Formats breakout order into the exact standardized markdown table specification.
-        """
-        md = (
-            f"### 🚀 **HIGH-CONFIDENCE BREAKOUT ORDER: {order['symbol']} (NSE)**\n\n"
-            f"| Field Name | Value / Setting | Why This Setting |\n"
-            f"| --- | --- | --- |\n"
-            f"| **Exchange** | **{order['exchange']}** | Primary liquidity pool for intraday volume. |\n"
-            f"| **Tab** | **{order['tab']}** | Standard order type. |\n"
-            f"| **Product** | **{order['product']}** | Uses 5x leverage (MIS), releasing margin buffer. |\n"
-            f"| **Quantity** | **{order['quantity']}** | Risk-managed position size for a ₹{order['base_capital']:,.2f} balance. |\n"
-            f"| **Stoploss Switch** | **{order['stoploss_switch']}** | Converts entry into a Stop-Loss Limit trigger order. |\n"
-            f"| **Trigger price** | **{order['trigger_price']}** | Order activates only when market hits ₹{order['trigger_price']}. |\n"
-            f"| **Limit price** | **{order['limit_price']}** | Max price you are willing to pay upon trigger. |\n\n"
-            f"⚡ *Calculated Margin Required: ₹{order['margin_required']:,.2f} (Exposure: ₹{order['total_exposure']:,.2f} via {order['leverage']})*"
-        )
-        return md
-
     def generate_telegram_message(self, order: dict) -> str:
         """
-        Formats breakout order into a clean, mobile-optimized HTML card for Telegram.
+        Formats breakout order into a clean, mobile-optimized HTML card for Telegram
+        with explicit LOW, MEDIUM, or HIGH risk ratings.
         """
+        score = order.get("sentiment_score", 0.60)
+        risk = self.compute_risk_rating(score)
+
         headline_text = f"\n📰 <i>Catalyst: {order['headline']}</i>\n" if order.get('headline') else ""
+        
         msg = (
             f"🚀 <b>HIGH-CONFIDENCE BREAKOUT ORDER</b>\n"
             f"📈 <b>Ticker:</b> <code>{order['symbol']}</code> ({order['exchange']})\n"
+            f"⚠️ <b>Risk Level:</b> <b>{risk['full']}</b> <i>({risk['desc']})</i>\n"
             f"{headline_text}\n"
             f"<b>ORDER DETAILS:</b>\n"
             f"• <b>Exchange:</b> <code>{order['exchange']}</code>\n"
             f"• <b>Tab:</b> <code>{order['tab']}</code>\n"
             f"• <b>Product:</b> <code>{order['product']}</code> (5x MIS Leverage)\n"
+            f"• <b>Risk Rating:</b> <code>{risk['level']} RISK</code> {risk['emoji']}\n"
             f"• <b>Quantity:</b> <code>{order['quantity']}</code> (Position size for ₹{order['base_capital']:,.2f})\n"
             f"• <b>Stoploss Switch:</b> <code>{order['stoploss_switch']}</code>\n"
             f"• <b>Trigger Price:</b> <code>₹{order['trigger_price']}</code> (Activates order)\n"
@@ -102,6 +103,7 @@ class OrderCalculator:
             f"Exchange      : {order['exchange']}\n"
             f"Tab           : {order['tab']}\n"
             f"Product       : {order['product']} (MIS)\n"
+            f"Risk Level    : {risk['level']} RISK\n"
             f"Quantity      : {order['quantity']}\n"
             f"SL Switch     : ON (Right)\n"
             f"Trigger Price : Rs {order['trigger_price']}\n"
@@ -111,84 +113,13 @@ class OrderCalculator:
         )
         return msg
 
-    def generate_html_table(self, order: dict) -> str:
-        """
-        Formats breakout order into an HTML table styled for Web UI.
-        """
-        html = f"""
-        <div class="order-spec-card">
-            <div class="order-spec-header">
-                <span class="badge badge-nse">NSE</span>
-                <span class="badge badge-mis">5x MIS LEVERAGE</span>
-                <h3 class="order-title">High-Confidence Breakout Order — {order['symbol']}</h3>
-            </div>
-            <table class="order-spec-table">
-                <thead>
-                    <tr>
-                        <th>Field Name</th>
-                        <th>Value / Setting</th>
-                        <th>Why This Setting</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Exchange</strong></td>
-                        <td><span class="val-bold">{order['exchange']}</span></td>
-                        <td>Primary liquidity pool for intraday volume.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Tab</strong></td>
-                        <td><span class="val-bold">{order['tab']}</span></td>
-                        <td>Standard order type.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Product</strong></td>
-                        <td><span class="val-highlight">{order['product']}</span></td>
-                        <td>Uses 5x leverage (MIS), releasing margin buffer.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Quantity</strong></td>
-                        <td><span class="val-primary">{order['quantity']}</span></td>
-                        <td>Risk-managed position size for a ₹{order['base_capital']:,.2f} balance.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Stoploss Switch</strong></td>
-                        <td><span class="val-toggle">{order['stoploss_switch']}</span></td>
-                        <td>Converts entry into a Stop-Loss Limit trigger order.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Trigger price</strong></td>
-                        <td><span class="val-trigger">₹{order['trigger_price']}</span></td>
-                        <td>Order activates only when market hits ₹{order['trigger_price']}.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Limit price</strong></td>
-                        <td><span class="val-limit">₹{order['limit_price']}</span></td>
-                        <td>Max price you are willing to pay upon trigger.</td>
-                    </tr>
-                </tbody>
-            </table>
-            <div class="order-spec-footer">
-                <span>Margin: <strong>₹{order['margin_required']:,.2f}</strong></span>
-                <span>Max Exposure: <strong>₹{order['total_exposure']:,.2f}</strong></span>
-            </div>
-        </div>
-        """
-        return html
-
 if __name__ == "__main__":
     import sys
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
     calc = OrderCalculator()
-    # Test case 1: Price ~95.40 (like SJVN example)
-    sjvn_order = calc.compute_breakout_order("SJVN", 95.40)
-    print(calc.generate_markdown_table(sjvn_order))
-
-    print("\n" + "="*50 + "\n")
-
-    # Test case 2: Stock price ~742.00 (shows Quantity = 17 for ₹2,524.10 balance!)
-    tatamotors_order = calc.compute_breakout_order("TATAMOTORS", 742.00)
-    print(calc.generate_markdown_table(tatamotors_order))
-
+    order = calc.compute_breakout_order("TATAMOTORS", 992.00)
+    order["sentiment_score"] = 0.76
+    order["headline"] = "Tata Motors EV sales jump 28% YoY; stock tests breakout"
+    print(calc.generate_telegram_message(order))
