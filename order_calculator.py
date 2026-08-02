@@ -20,13 +20,12 @@ class OrderCalculator:
 
     def compute_breakout_order(self, symbol: str, resistance_price: float, custom_capital: float = None) -> dict:
         """
-        Calculates exact quantity, trigger price, and limit price for a breakout order.
-        
-        Args:
-            symbol (str): NSE ticker symbol (e.g., 'TATAMOTORS', 'SJVN')
-            resistance_price (float): Key technical resistance level (e.g., 95.40 or 742.00)
-            custom_capital (float): Optional capital override
+        Calculates exact quantity, trigger price, and limit price for a validated breakout order.
+        Rejects invalid or unverified stock pricing.
         """
+        if not symbol or resistance_price <= 0:
+            raise ValueError(f"Invalid stock parameter: symbol={symbol}, resistance_price={resistance_price}")
+
         capital = custom_capital if custom_capital is not None else self.base_capital
         effective_cap = capital * self.leverage
 

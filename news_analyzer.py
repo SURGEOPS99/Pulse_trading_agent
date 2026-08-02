@@ -1,7 +1,8 @@
 """
-News & Catalyst Processing Engine.
-Ingests 100% real-time breaking headlines from Moneycontrol, Economic Times, Livemint, and Google News RSS feeds.
-Dynamically tracks and maps news events to ALL NSE listed stock tickers and scores sentiment.
+Expert Stock Market Analyst & Financial Catalyst Engine.
+Ingests 100% real-time market news across Moneycontrol, Economic Times, Livemint, and Google News.
+Enforces strict NSE listed ticker validation (eliminates false positives like 'PENNY', 'CHARTIST', 'BILL').
+Filters generic listicles and clickbait to focus exclusively on genuine high-impact stock catalysts.
 """
 
 import re
@@ -14,11 +15,11 @@ from config import SENTIMENT_THRESHOLD, NSE_COMPANIES_DATABASE
 # Financial sentiment dictionary with positive and negative keyword weights
 POSITIVE_FINANCIAL_WORDS = {
     "surge": 0.45, "soar": 0.50, "rally": 0.45, "jump": 0.40, "gain": 0.35, "spike": 0.40,
-    "breakout": 0.60, "record high": 0.55, "profit": 0.40, "revenue growth": 0.45,
-    "order win": 0.55, "contract": 0.35, "approval": 0.45, "bullish": 0.50, "upgrade": 0.45,
-    "beat": 0.40, "outperform": 0.45, "expansion": 0.35, "partnership": 0.40,
-    "dividend": 0.30, "robust": 0.35, "strong": 0.30, "acquisition": 0.35,
-    "multibagger": 0.60, "target raised": 0.50, "buy rating": 0.50
+    "breakout": 0.60, "record high": 0.55, "profit": 0.45, "revenue growth": 0.50,
+    "order win": 0.60, "contract": 0.45, "approval": 0.50, "bullish": 0.50, "upgrade": 0.50,
+    "beat": 0.40, "outperform": 0.45, "expansion": 0.40, "partnership": 0.40,
+    "dividend": 0.30, "robust": 0.35, "strong": 0.30, "acquisition": 0.40,
+    "target raised": 0.55, "buy rating": 0.50, "mandate": 0.50, "secured": 0.45
 }
 
 NEGATIVE_FINANCIAL_WORDS = {
@@ -28,16 +29,24 @@ NEGATIVE_FINANCIAL_WORDS = {
     "fraud": -0.70, "sanction": -0.50, "debt": -0.35, "slash": -0.40
 }
 
+# Words that indicate generic clickbait or non-actionable listicles
+NOISE_PATTERNS = [
+    r'\bpenny\b', r'\bpenny stocks\b', r'\bdo you own\b', r'\bhow the legendary\b',
+    r'\b5 shares to buy\b', r'\b10 stocks\b', r'\bpenny stocks surged\b',
+    r'\bchartist talk\b', r'\bview on\b', r'\bwhat should investors do\b'
+]
+
 class NewsAnalyzer:
     """
-    Financial NLP engine operating exclusively on 100% live real-time market data.
+    Expert stock market analyst NLP engine with strict NSE symbol validation and noise filtering.
     """
 
     def __init__(self, database=None):
         self.database = database or NSE_COMPANIES_DATABASE
-        self.ticker_map = self._build_ticker_map()
+        self.valid_tickers = {item["symbol"].upper(): item for item in self.database}
+        self.ticker_alias_map = self._build_ticker_alias_map()
 
-    def _build_ticker_map(self):
+    def _build_ticker_alias_map(self):
         mapping = {}
         for item in self.database:
             symbol = item["symbol"].upper()
@@ -45,9 +54,15 @@ class NewsAnalyzer:
             mapping[symbol] = symbol
             mapping[name] = symbol
 
-            words = name.split()
+            # Match major company aliases (e.g. Tata Motors -> TATAMOTORS, Reliance Industries -> RELIANCE)
+            clean_name = re.sub(r'\b(LIMITED|LTD|CORPORATION|CORP|INDUSTRIES|IND|COMPANY|CO)\b', '', name).strip()
+            if len(clean_name) >= 3:
+                mapping[clean_name] = symbol
+            
+            words = clean_name.split()
             if len(words) >= 2:
                 mapping[" ".join(words[:2])] = symbol
+            if len(words) >= 1 and len(words[0]) >= 4 and words[0] not in {"STATE", "POWER", "BHARAT", "INDIAN", "FIRST"}:
                 mapping[words[0]] = symbol
         return mapping
 
@@ -76,29 +91,28 @@ class NewsAnalyzer:
 
         return round(score, 2)
 
-    def extract_ticker(self, text: str) -> str:
+    def extract_validated_nse_ticker(self, text: str) -> str:
         """
-        Extracts matching NSE ticker symbol dynamically from headlines.
+        Extracts ONLY officially listed, validated NSE stock tickers.
+        Strictly rejects generic English words ('PENNY', 'BILL', 'CHARTIST', 'BREAKOUT', etc.).
         """
         text_upper = text.upper()
-        
-        # 1. Exact alias/database match
-        for alias, symbol in sorted(self.ticker_map.items(), key=lambda x: len(x[0]), reverse=True):
+
+        # Check noise pattern filter first
+        for pat in NOISE_PATTERNS:
+            if re.search(pat, text.lower()):
+                return None
+
+        # Search for exact ticker or alias match from authoritative NSE database
+        for alias, symbol in sorted(self.ticker_alias_map.items(), key=lambda x: len(x[0]), reverse=True):
             if len(alias) >= 3 and re.search(r'\b' + re.escape(alias) + r'\b', text_upper):
                 return symbol
-
-        # 2. Dynamic NSE Ticker extraction pattern (uppercase 3-10 letter symbols)
-        potential_tickers = re.findall(r'\b[A-Z]{3,10}\b', text_upper)
-        ignored_words = {"THE", "FOR", "AND", "NEW", "BUY", "SELL", "STOCK", "STOCKS", "INDIA", "MARKET", "NIFTY", "SENSEX", "BANK", "YOY", "Q1", "Q2", "Q3", "Q4", "CRORE", "LAKH", "HIGH", "LOW", "NEWS", "GAIN", "FALL"}
-        for t in potential_tickers:
-            if t not in ignored_words and len(t) >= 3:
-                return t
 
         return None
 
     def _fetch_rss(self, url: str, source_name: str) -> list:
         """
-        Helper to parse an XML RSS feed.
+        Fetches and parses live XML RSS feeds.
         """
         headlines = []
         try:
@@ -107,12 +121,12 @@ class NewsAnalyzer:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
                 
-                for item in root.findall('.//item')[:15]:
+                for item in root.findall('.//item')[:20]:
                     title = item.find('title').text if item.find('title') is not None else ""
                     pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
                     link = item.find('link').text if item.find('link') is not None else ""
                     
-                    symbol = self.extract_ticker(title)
+                    symbol = self.extract_validated_nse_ticker(title)
                     sentiment = self.calculate_sentiment(title)
                     
                     if symbol:
@@ -125,29 +139,29 @@ class NewsAnalyzer:
                             "link": link
                         })
         except Exception as e:
-            print(f"[News Analyzer] Error fetching live RSS feed '{source_name}': {e}")
+            print(f"[News Analyzer] Live RSS feed '{source_name}' error: {e}")
         return headlines
 
     def fetch_live_market_news(self) -> list:
         """
-        Fetches 100% real-time headlines across major Indian financial news feeds.
+        Fetches 100% real-time headlines across primary Indian financial portals.
         """
         all_headlines = []
 
-        # Feed 1: Google News RSS for Indian Stock Market Breakouts
-        google_query = urllib.parse.quote("NSE stock breakout India market")
+        # Google News RSS for Indian Stock Market Breakouts
+        google_query = urllib.parse.quote("NSE stock breakout earnings order India")
         google_url = f"https://news.google.com/rss/search?q={google_query}&hl=en-IN&gl=IN&ceid=IN:en"
-        all_headlines.extend(self._fetch_rss(google_url, "Google News RSS"))
+        all_headlines.extend(self._fetch_rss(google_url, "Google News"))
 
-        # Feed 2: Moneycontrol Business & Top News
-        mc_url = "https://www.moneycontrol.com/rss/business.xml"
+        # Moneycontrol Markets RSS
+        mc_url = "https://www.moneycontrol.com/rss/MCtopnews.xml"
         all_headlines.extend(self._fetch_rss(mc_url, "Moneycontrol"))
 
-        # Feed 3: Economic Times Markets Feed
+        # Economic Times Markets Feed
         et_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
         all_headlines.extend(self._fetch_rss(et_url, "Economic Times"))
 
-        # Feed 4: Livemint Markets Feed
+        # Livemint Markets Feed
         mint_url = "https://www.livemint.com/rss/markets"
         all_headlines.extend(self._fetch_rss(mint_url, "Livemint"))
 
@@ -155,12 +169,11 @@ class NewsAnalyzer:
 
     def analyze_market_news(self) -> list:
         """
-        Fetches live RSS headlines across financial portals, extracts NSE symbols,
-        and filters high-conviction catalysts (Sentiment Score >= SENTIMENT_THRESHOLD).
-        Exclusively relies on real-time data.
+        Scans live financial headlines, enforces strict NSE ticker validation,
+        filters non-actionable clickbait, and outputs high-conviction catalysts (Score >= 0.40).
         """
         live_news = self.fetch_live_market_news()
-        print(f"[News Analyzer] Ingested {len(live_news)} real-time headlines from financial feeds.")
+        print(f"[News Analyzer] Ingested {len(live_news)} verified stock news headlines.")
 
         filtered_candidates = []
         seen_symbols = set()
@@ -169,15 +182,20 @@ class NewsAnalyzer:
             symbol = item.get("symbol")
             score = item.get("sentiment_score", 0.0)
             
-            if symbol and score >= SENTIMENT_THRESHOLD and symbol not in seen_symbols:
+            # Ensure valid ticker and score threshold
+            if symbol and symbol in self.valid_tickers and score >= SENTIMENT_THRESHOLD and symbol not in seen_symbols:
                 filtered_candidates.append(item)
                 seen_symbols.add(symbol)
 
         return filtered_candidates
 
 if __name__ == "__main__":
+    import sys
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
     analyzer = NewsAnalyzer()
     candidates = analyzer.analyze_market_news()
-    print(f"\nAnalyzed Live NSE Candidates (Sentiment Score >= {SENTIMENT_THRESHOLD}):")
+    print(f"\n🎯 Expert Analyst Verified NSE Candidates (Score >= {SENTIMENT_THRESHOLD}):")
     for c in candidates:
-        print(f"[{c['symbol']}] Score: {c['sentiment_score']} | Source: {c['source']} | Headline: {c['title']}")
+        print(f"[{c['symbol']}] Score: {c['sentiment_score']} | Source: {c['source']}\n    Headline: {c['title']}")
