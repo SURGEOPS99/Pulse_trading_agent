@@ -1,0 +1,27 @@
+name: Daily NSE Intraday Telegram Pre-Market Alerts
+
+on:
+  schedule:
+    # 03:00 UTC = 08:30 AM IST every day
+    - cron: '0 3 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub web / mobile app anytime
+
+jobs:
+  run-premarket-scanner:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run NSE Intraday Telegram Scanner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || '8815412040:AAH4iB1rFPWnmpEnQFkvQ2aUMq6hNtxqGxA' }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '8313018138' }}
+        run: |
+          python main.py --now
