@@ -1,8 +1,8 @@
 """
-Expert Stock Market Analyst & Financial Catalyst Engine.
-Ingests 100% real-time market news across Moneycontrol, Economic Times, Livemint, and Google News.
-Enforces strict NSE listed ticker validation (eliminates false positives like 'PENNY', 'CHARTIST', 'BILL').
-Filters generic listicles and clickbait to focus exclusively on genuine high-impact stock catalysts.
+Expert Stock Market Analyst Engine.
+Ingests live breaking headlines across Moneycontrol, Economic Times, Livemint, and Google News RSS.
+Enforces STRICT official NSE ticker validation.
+Rejects non-stock trading terms ('BREAKOUT', 'PENNY', 'CHARTIST', 'BILL', 'BUY', 'SELL') and generic advice listicles.
 """
 
 import re
@@ -15,7 +15,7 @@ from config import SENTIMENT_THRESHOLD, NSE_COMPANIES_DATABASE
 # Financial sentiment dictionary with positive and negative keyword weights
 POSITIVE_FINANCIAL_WORDS = {
     "surge": 0.45, "soar": 0.50, "rally": 0.45, "jump": 0.40, "gain": 0.35, "spike": 0.40,
-    "breakout": 0.60, "record high": 0.55, "profit": 0.45, "revenue growth": 0.50,
+    "record high": 0.55, "profit": 0.45, "revenue growth": 0.50,
     "order win": 0.60, "contract": 0.45, "approval": 0.50, "bullish": 0.50, "upgrade": 0.50,
     "beat": 0.40, "outperform": 0.45, "expansion": 0.40, "partnership": 0.40,
     "dividend": 0.30, "robust": 0.35, "strong": 0.30, "acquisition": 0.40,
@@ -33,12 +33,21 @@ NEGATIVE_FINANCIAL_WORDS = {
 NOISE_PATTERNS = [
     r'\bpenny\b', r'\bpenny stocks\b', r'\bdo you own\b', r'\bhow the legendary\b',
     r'\b5 shares to buy\b', r'\b10 stocks\b', r'\bpenny stocks surged\b',
-    r'\bchartist talk\b', r'\bview on\b', r'\bwhat should investors do\b'
+    r'\bchartist talk\b', r'\bview on\b', r'\bwhat should investors do\b',
+    r'\bbreakout stocks to buy\b', r'\bshares to buy today\b', r'\brecommends five shares\b'
 ]
+
+# Non-stock English trading terms that must NEVER be extracted as stock symbols
+NON_STOCK_WORDS = {
+    "BREAKOUT", "PENNY", "CHARTIST", "BILL", "BUY", "SELL", "STOCK", "STOCKS",
+    "INDIA", "MARKET", "NIFTY", "SENSEX", "BANK", "YOY", "Q1", "Q2", "Q3", "Q4",
+    "CRORE", "LAKH", "HIGH", "LOW", "NEWS", "GAIN", "FALL", "SHARE", "SHARES",
+    "TODAY", "WEEK", "MONTH", "YEAR", "REPORT", "REPORTS", "TARGET", "EXPERT"
+}
 
 class NewsAnalyzer:
     """
-    Expert stock market analyst NLP engine with strict NSE symbol validation and noise filtering.
+    Expert stock market analyst engine enforcing strict NSE listed company validation.
     """
 
     def __init__(self, database=None):
@@ -54,9 +63,8 @@ class NewsAnalyzer:
             mapping[symbol] = symbol
             mapping[name] = symbol
 
-            # Match major company aliases (e.g. Tata Motors -> TATAMOTORS, Reliance Industries -> RELIANCE)
             clean_name = re.sub(r'\b(LIMITED|LTD|CORPORATION|CORP|INDUSTRIES|IND|COMPANY|CO)\b', '', name).strip()
-            if len(clean_name) >= 3:
+            if len(clean_name) >= 3 and clean_name not in NON_STOCK_WORDS:
                 mapping[clean_name] = symbol
             
             words = clean_name.split()
@@ -94,7 +102,8 @@ class NewsAnalyzer:
     def extract_validated_nse_ticker(self, text: str) -> str:
         """
         Extracts ONLY officially listed, validated NSE stock tickers.
-        Strictly rejects generic English words ('PENNY', 'BILL', 'CHARTIST', 'BREAKOUT', etc.).
+        Rejects trading terms ('BREAKOUT', 'PENNY', 'CHARTIST', 'BILL', 'BUY', 'SELL')
+        and non-company recommendation headlines.
         """
         text_upper = text.upper()
 
@@ -105,7 +114,7 @@ class NewsAnalyzer:
 
         # Search for exact ticker or alias match from authoritative NSE database
         for alias, symbol in sorted(self.ticker_alias_map.items(), key=lambda x: len(x[0]), reverse=True):
-            if len(alias) >= 3 and re.search(r'\b' + re.escape(alias) + r'\b', text_upper):
+            if symbol not in NON_STOCK_WORDS and len(alias) >= 3 and re.search(r'\b' + re.escape(alias) + r'\b', text_upper):
                 return symbol
 
         return None
@@ -129,7 +138,7 @@ class NewsAnalyzer:
                     symbol = self.extract_validated_nse_ticker(title)
                     sentiment = self.calculate_sentiment(title)
                     
-                    if symbol:
+                    if symbol and symbol in self.valid_tickers and symbol not in NON_STOCK_WORDS:
                         headlines.append({
                             "title": title.strip(),
                             "symbol": symbol,
@@ -149,7 +158,7 @@ class NewsAnalyzer:
         all_headlines = []
 
         # Google News RSS for Indian Stock Market Breakouts
-        google_query = urllib.parse.quote("NSE stock breakout earnings order India")
+        google_query = urllib.parse.quote("NSE stock order earnings sales India")
         google_url = f"https://news.google.com/rss/search?q={google_query}&hl=en-IN&gl=IN&ceid=IN:en"
         all_headlines.extend(self._fetch_rss(google_url, "Google News"))
 
@@ -169,12 +178,11 @@ class NewsAnalyzer:
 
     def analyze_market_news(self) -> list:
         """
-        Scans live financial headlines across all NSE listed companies (~2,000+ stocks).
-        Enforces noise filtering to drop clickbait while accepting ALL valid NSE stock tickers.
-        Outputs high-conviction catalysts (Score >= 0.40).
+        Scans live financial headlines, enforces strict official NSE ticker validation,
+        filters non-actionable clickbait, and outputs high-conviction catalysts (Score >= 0.40).
         """
         live_news = self.fetch_live_market_news()
-        print(f"[News Analyzer] Ingested {len(live_news)} real-time market news headlines across all NSE stocks.")
+        print(f"[News Analyzer] Ingested {len(live_news)} verified stock news headlines.")
 
         filtered_candidates = []
         seen_symbols = set()
@@ -183,8 +191,8 @@ class NewsAnalyzer:
             symbol = item.get("symbol")
             score = item.get("sentiment_score", 0.0)
             
-            # Accepts ALL valid NSE symbols across the entire exchange
-            if symbol and score >= SENTIMENT_THRESHOLD and symbol not in seen_symbols:
+            # Ensure valid ticker and score threshold
+            if symbol and symbol in self.valid_tickers and symbol not in NON_STOCK_WORDS and score >= SENTIMENT_THRESHOLD and symbol not in seen_symbols:
                 filtered_candidates.append(item)
                 seen_symbols.add(symbol)
 

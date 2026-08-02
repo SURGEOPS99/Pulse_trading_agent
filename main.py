@@ -53,9 +53,13 @@ class IntradayTelegramAgent:
             score = item["sentiment_score"]
             headline = item["title"]
 
-            # Dynamic lookup across all ~2,000+ NSE companies
+            # Strict verified lookup from official NSE database
             stock_info = next((s for s in self.database if s["symbol"] == symbol), None)
-            resistance = stock_info["resistance"] if stock_info else 250.00
+            if not stock_info:
+                print(f"[Agent Warning] Skipping unverified stock symbol: '{symbol}'")
+                continue
+
+            resistance = stock_info["resistance"]
 
             order_dict = self.order_calculator.compute_breakout_order(symbol, resistance, custom_capital=self.capital)
             order_dict["sentiment_score"] = score
