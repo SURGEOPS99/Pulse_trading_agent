@@ -1,6 +1,6 @@
 """
 News & Catalyst Processing Engine.
-Ingests headlines across financial news feeds (Moneycontrol, Economic Times, Livemint, Google News RSS).
+Ingests 100% real-time breaking headlines from Moneycontrol, Economic Times, Livemint, and Google News RSS feeds.
 Dynamically tracks and maps news events to ALL NSE listed stock tickers and scores sentiment.
 """
 
@@ -30,7 +30,7 @@ NEGATIVE_FINANCIAL_WORDS = {
 
 class NewsAnalyzer:
     """
-    Financial NLP engine dynamically tracking all NSE listed stocks.
+    Financial NLP engine operating exclusively on 100% live real-time market data.
     """
 
     def __init__(self, database=None):
@@ -45,7 +45,6 @@ class NewsAnalyzer:
             mapping[symbol] = symbol
             mapping[name] = symbol
 
-            # Common aliases
             words = name.split()
             if len(words) >= 2:
                 mapping[" ".join(words[:2])] = symbol
@@ -79,7 +78,7 @@ class NewsAnalyzer:
 
     def extract_ticker(self, text: str) -> str:
         """
-        Extracts matching NSE ticker symbol dynamically from headlines or news text.
+        Extracts matching NSE ticker symbol dynamically from headlines.
         """
         text_upper = text.upper()
         
@@ -90,28 +89,25 @@ class NewsAnalyzer:
 
         # 2. Dynamic NSE Ticker extraction pattern (uppercase 3-10 letter symbols)
         potential_tickers = re.findall(r'\b[A-Z]{3,10}\b', text_upper)
-        ignored_words = {"THE", "FOR", "AND", "NEW", "BUY", "SELL", "STOCK", "STOCKS", "INDIA", "MARKET", "NIFTY", "SENSEX", "BANK", "YOY", "Q1", "Q2", "Q3", "Q4", "CRORE", "LAKH", "HIGH", "LOW"}
+        ignored_words = {"THE", "FOR", "AND", "NEW", "BUY", "SELL", "STOCK", "STOCKS", "INDIA", "MARKET", "NIFTY", "SENSEX", "BANK", "YOY", "Q1", "Q2", "Q3", "Q4", "CRORE", "LAKH", "HIGH", "LOW", "NEWS", "GAIN", "FALL"}
         for t in potential_tickers:
             if t not in ignored_words and len(t) >= 3:
                 return t
 
         return None
 
-    def fetch_google_news(self, query: str = "NSE stock breakout trading India") -> list:
+    def _fetch_rss(self, url: str, source_name: str) -> list:
         """
-        Fetches live headlines via Google News RSS Feed.
+        Helper to parse an XML RSS feed.
         """
         headlines = []
         try:
-            encoded_query = urllib.parse.quote(query)
-            rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-IN&gl=IN&ceid=IN:en"
-            req = Request(rss_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            
-            with urlopen(req, timeout=5) as response:
+            req = Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urlopen(req, timeout=6) as response:
                 xml_data = response.read()
                 root = ET.fromstring(xml_data)
                 
-                for item in root.findall('.//item')[:20]:
+                for item in root.findall('.//item')[:15]:
                     title = item.find('title').text if item.find('title') is not None else ""
                     pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
                     link = item.find('link').text if item.find('link') is not None else ""
@@ -121,90 +117,55 @@ class NewsAnalyzer:
                     
                     if symbol:
                         headlines.append({
-                            "title": title,
+                            "title": title.strip(),
                             "symbol": symbol,
                             "sentiment_score": sentiment,
-                            "source": "Google News / RSS",
+                            "source": source_name,
                             "timestamp": pub_date or datetime.now().strftime("%Y-%m-%d %H:%M"),
                             "link": link
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[News Analyzer] Error fetching live RSS feed '{source_name}': {e}")
         return headlines
 
-    def get_fallback_live_feed(self) -> list:
+    def fetch_live_market_news(self) -> list:
         """
-        Provides active real-time news catalysts across major NSE sectors.
+        Fetches 100% real-time headlines across major Indian financial news feeds.
         """
-        now = datetime.now().strftime("%H:%M IST")
-        return [
-            {
-                "title": "SJVN Limited secures 500MW solar power project order worth ₹2,700 Cr; stock poised for breakout",
-                "symbol": "SJVN",
-                "sentiment_score": 0.82,
-                "source": "Moneycontrol",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "Tata Motors EV sales jump 28% YoY; analysts upgrade price target pointing to technical breakout",
-                "symbol": "TATAMOTORS",
-                "sentiment_score": 0.76,
-                "source": "Economic Times",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "Reliance Industries expansion into green hydrogen picks up speed with new gigafactory milestone",
-                "symbol": "RELIANCE",
-                "sentiment_score": 0.65,
-                "source": "Livemint",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "Zomato quarterly order volume surges as margin expands; stock tests key resistance zone",
-                "symbol": "ZOMATO",
-                "sentiment_score": 0.58,
-                "source": "Moneycontrol",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "Infosys secures multi-million dollar AI infrastructure transformation deal in Europe",
-                "symbol": "INFY",
-                "sentiment_score": 0.70,
-                "source": "Economic Times",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "Suzlon Energy bags 200MW wind power mandate; order book reaches record high",
-                "symbol": "SUZLON",
-                "sentiment_score": 0.79,
-                "source": "Moneycontrol",
-                "timestamp": f"Today, {now}"
-            },
-            {
-                "title": "State Bank of India net profit rises 14% on robust NII growth; stock nears resistance breakout",
-                "symbol": "SBIN",
-                "sentiment_score": 0.68,
-                "source": "Economic Times",
-                "timestamp": f"Today, {now}"
-            }
-        ]
+        all_headlines = []
+
+        # Feed 1: Google News RSS for Indian Stock Market Breakouts
+        google_query = urllib.parse.quote("NSE stock breakout India market")
+        google_url = f"https://news.google.com/rss/search?q={google_query}&hl=en-IN&gl=IN&ceid=IN:en"
+        all_headlines.extend(self._fetch_rss(google_url, "Google News RSS"))
+
+        # Feed 2: Moneycontrol Business & Top News
+        mc_url = "https://www.moneycontrol.com/rss/business.xml"
+        all_headlines.extend(self._fetch_rss(mc_url, "Moneycontrol"))
+
+        # Feed 3: Economic Times Markets Feed
+        et_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+        all_headlines.extend(self._fetch_rss(et_url, "Economic Times"))
+
+        # Feed 4: Livemint Markets Feed
+        mint_url = "https://www.livemint.com/rss/markets"
+        all_headlines.extend(self._fetch_rss(mint_url, "Livemint"))
+
+        return all_headlines
 
     def analyze_market_news(self) -> list:
         """
-        Fetches live RSS & financial headlines, dynamically extracts NSE tickers, and filters sentiment > 0.40.
-        Uses fallback feed only if live RSS requests fail due to network timeouts.
+        Fetches live RSS headlines across financial portals, extracts NSE symbols,
+        and filters high-conviction catalysts (Sentiment Score >= SENTIMENT_THRESHOLD).
+        Exclusively relies on real-time data.
         """
-        all_news = self.fetch_google_news()
-        
-        # If live RSS feed is empty (e.g. offline or network error), fallback to backup catalysts
-        if not all_news:
-            print("[News Analyzer] Live RSS feed returned 0 headlines. Using fallback news feed...")
-            all_news = self.get_fallback_live_feed()
+        live_news = self.fetch_live_market_news()
+        print(f"[News Analyzer] Ingested {len(live_news)} real-time headlines from financial feeds.")
 
         filtered_candidates = []
         seen_symbols = set()
 
-        for item in all_news:
+        for item in live_news:
             symbol = item.get("symbol")
             score = item.get("sentiment_score", 0.0)
             
@@ -217,6 +178,6 @@ class NewsAnalyzer:
 if __name__ == "__main__":
     analyzer = NewsAnalyzer()
     candidates = analyzer.analyze_market_news()
-    print(f"Analyzed NSE Candidates (Sentiment Score >= {SENTIMENT_THRESHOLD}):")
+    print(f"\nAnalyzed Live NSE Candidates (Sentiment Score >= {SENTIMENT_THRESHOLD}):")
     for c in candidates:
         print(f"[{c['symbol']}] Score: {c['sentiment_score']} | Source: {c['source']} | Headline: {c['title']}")
