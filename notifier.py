@@ -60,8 +60,8 @@ class MobileNotifier:
                 res_data = json.loads(response.read().decode('utf-8'))
                 if res_data.get("ok"):
                     return res_data.get("result", [])
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Telegram Notifier] Error fetching updates: {e}")
         return []
 
     def dispatch_breakout_alert(self, order_dict: dict, telegram_msg: str = None) -> dict:
