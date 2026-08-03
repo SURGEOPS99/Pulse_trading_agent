@@ -3,7 +3,7 @@ Configuration parameters for the Intraday Trading Agent.
 """
 
 # Telegram Bot Credentials
-TELEGRAM_BOT_TOKEN = "7294435887:AAEJ3u3Z3n78k94s528B8m_Wc0iYt_7k231"
+TELEGRAM_BOT_TOKEN = "8815412040:AAH4iB1rFPWnmpEnQFkvQ2aUMq6hNtxqGxA"
 TELEGRAM_CHAT_ID = "2140889242"
 
 # Core Trading Configuration
