@@ -81,6 +81,18 @@ class MobileNotifier:
             "telegram": telegram_res
         }
 
+    def dispatch_sell_alert(self, symbol: str, message: str) -> dict:
+        """
+        Dispatches a sell-now intraday high alert to Telegram.
+        """
+        print(f"\n[Telegram Dispatcher] Sending SELL Alert for NSE Stock: {symbol}...")
+        telegram_res = self.send_telegram(message, parse_mode="HTML")
+
+        return {
+            "symbol": symbol,
+            "telegram": telegram_res
+        }
+
 if __name__ == "__main__":
     notifier = MobileNotifier()
     from order_calculator import OrderCalculator
