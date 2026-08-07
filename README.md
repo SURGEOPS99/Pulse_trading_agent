@@ -71,8 +71,8 @@ Limit Price   : Rs 993.98
 
 2. **Configure GitHub Repository Secrets (Optional - Already embedded in fallback):**
    - Go to your GitHub Repo -> **Settings** -> **Secrets and variables** -> **Actions** -> **New repository secret**.
-   - `TELEGRAM_BOT_TOKEN`: `8815412040:AAH4iB1rFPWnmpEnQFkvQ2aUMq6hNtxqGxA`
-   - `TELEGRAM_CHAT_ID`: `8313018138`
+   - `TELEGRAM_BOT_TOKEN`: <YOUR BOT_TOKEN>
+   - `TELEGRAM_CHAT_ID`: <YOUR CHAT_ID>
 
 3. **Manual Cloud Trigger on GitHub:**
    - Go to **Actions** tab -> Select **"Daily NSE Intraday Telegram Pre-Market Alerts"** -> Click **"Run workflow"**.
